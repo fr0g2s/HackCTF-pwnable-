@@ -1,1 +1,1 @@
-wsl에서 32bit 안됨;;
+not this way
